@@ -1,9 +1,11 @@
 #pragma once
-
 #include "Copter.h"
+
 #include <AP_Math/chirp.h>
 #include <AP_ExternalControl/AP_ExternalControl_config.h> // TODO why is this needed if Copter.h includes this
 #include <AP_HAL/Semaphores.h>
+#include <AP_Common/AP_Common.h>
+#include <AP_Param/AP_Param.h>
 
 #if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
 #include "afs_copter.h"
@@ -101,6 +103,7 @@ public:
         AUTOROTATE =   26,  // Autonomous autorotation
         AUTO_RTL =     27,  // Auto RTL, this is not a true mode, AUTO will report as this mode if entered to perform a DO_LAND_START Landing sequence
         TURTLE =       28,  // Flip over after crash
+        SEEK =         31,  // Flip over after crash
 
         // Mode number 30 reserved for "offboard" for external/lua control.
 
@@ -1682,6 +1685,167 @@ protected:
 private:
 
 };
+
+#include <vector>
+
+#if MODE_SEEK_ENABLED
+class ModeSeek : public Mode {
+public:
+
+    using Mode::Mode;
+
+    Number mode_number() const override { return Number::SEEK; }
+    const char* name()  const override { return "SEEK"; }
+    const char* name4() const override { return "SEEK"; }
+
+    bool init(bool ignore_checks) override;
+    void run() override;
+
+    bool requires_GPS() const override { return true; }
+    bool has_manual_throttle() const override { return false; }
+    bool allows_arming(AP_Arming::Method) const override { return false; }
+    bool is_autopilot() const override { return true; }
+
+    static const AP_Param::GroupInfo var_info[];
+
+private:
+    // ---------- RSSI sampling methods ----------
+    float get_telem_rssi_dbm() const;
+    float sample_rssi_dbm(float distance_m) const;
+    bool sense_rssi_filtered(float distance_m, uint16_t w, float fs_hz, float alpha,
+                             float &ema_last, float &out_filtered);
+    bool update_vector_to_home(Location &cur, Location &home);
+
+    // ---------- Helpers ----------
+    float median_of(const std::vector<float> &in) const;
+    static inline float clampf(float v, float lo, float hi) {
+        return (v < lo) ? lo : (v > hi) ? hi : v;
+    }
+    static inline float deg2rad(float d) { return radians(d); }
+    static inline float rad2deg(float r) { return degrees(r); }
+
+    // ---------- RSSI simulation ----------
+    float rssi_ideal_dbm(float d) const;
+    float rssi_noisy_dbm(float d) const;
+
+    // ---------- RNG ----------
+    struct TinyRNG {
+        uint32_t state = 0x12345678u;
+        float uniform01();
+        float normal01();
+    };
+
+    // ---------- Algorithm parameters (runtime) ----------
+    struct SeekParams {
+        // filtering
+        uint16_t w = 5;      // window length
+        float alpha = 0.25f; // EMA smoothing
+        float fs = 1.0f;     // sample rate (Hz)
+
+        // decision
+        float turn_deg = 90.0f; // heading rotation when worse
+        float step_size_constant = 10.0f;
+        float decay_rate = 5.0f;
+        float min_step_size_m = 0.25f;
+        float max_step_size_m = 20.0f;
+        float speed_mps = 0.5f;
+
+        // stop condition
+        float target_rssi_dbm = -75.0f;
+        float rssi_floor_dbm  = -100.0f;
+    };
+
+    enum class Phase : uint8_t { INIT, MOVE, SEEK, HOLD };
+
+    struct SeekState {
+        bool inited = false;
+
+        // geometry
+        float heading_rad = 0.0f;
+        float start_distance_m = 0.0f;
+        float initial_step_size_m = 0.0f;
+
+        // filtering
+        float ema_last = NAN;
+        float rssi_prev = NAN;
+        float rssi_now = NAN;
+        float initial_rssi = NAN;
+        std::vector<float> window;
+        uint16_t samples_needed = 0;
+        uint32_t next_sample_ms = 0;
+
+        // step/move
+        float current_step_len_m = 0.0f;
+        uint32_t phase_end_ms = 0;
+        uint32_t step_index = 0;
+
+        // mode phase
+        Phase phase = Phase::INIT;
+
+        // RNG for fallback simulator
+        mutable TinyRNG rng;
+    };
+
+    // ---------- Member variables ----------
+    SeekParams SP;
+    SeekState  SS;
+
+    // nav state
+    float  last_distance_m_   = 0.0f;
+    float  home_bearing_rad_  = 0.0f;
+    bool   have_home_vec_     = false;
+
+    // tunables (runtime)
+    float  cruise_speed_mps_  = 1.2f;   // horizontal speed towards home
+    float  stop_radius_m_     = 2.0f;   // stop when within this distance
+
+    // ---------- AP_Param-backed parameters (persistent) ----------
+    // Filtering
+    AP_Int16 P_W;               // SEEK_W (window length)
+    AP_Float P_ALPHA;           // SEEK_ALPHA
+    AP_Float P_FS;              // SEEK_FS
+
+    // Decision / step shaping
+    AP_Float P_TURN_DEG;        // SEEK_TURN_DEG
+    AP_Float P_STEP_K;          // SEEK_STEP_K
+    AP_Float P_DECAY;           // SEEK_DECAY
+    AP_Float P_STEP_MIN;        // SEEK_STEP_MIN
+    AP_Float P_STEP_MAX;        // SEEK_STEP_MAX
+    AP_Float P_SPEED_MPS;       // SEEK_SPEED_MPS
+
+    // Stop condition
+    AP_Float P_TARGET_DBM;      // SEEK_TARGET_DBM
+    AP_Float P_FLOOR_DBM;       // SEEK_FLOOR_DBM
+
+    // Navigation tunables
+    AP_Float P_CRUISE_SPD;      // SEEK_CRUISE_SPD
+    AP_Float P_STOP_RAD;        // SEEK_STOP_RAD
+
+    // Param table + state
+    bool params_inited_ = false;
+
+    // load params into runtime structs
+    inline void load_params_into_runtime() {
+        SP.w                 = (uint16_t)clampf((float)P_W.get(), 1.0f, 64.0f);
+        SP.alpha             = P_ALPHA.get();
+        SP.fs                = P_FS.get();
+
+        SP.turn_deg          = P_TURN_DEG.get();
+        SP.step_size_constant= P_STEP_K.get();
+        SP.decay_rate        = P_DECAY.get();
+        SP.min_step_size_m   = P_STEP_MIN.get();
+        SP.max_step_size_m   = P_STEP_MAX.get();
+        SP.speed_mps         = P_SPEED_MPS.get();
+
+        SP.target_rssi_dbm   = P_TARGET_DBM.get();
+        SP.rssi_floor_dbm    = P_FLOOR_DBM.get();
+
+        cruise_speed_mps_    = P_CRUISE_SPD.get();
+        stop_radius_m_       = P_STOP_RAD.get();
+    }
+};
+
+#endif
 
 #if FRAME_CONFIG == HELI_FRAME
 class ModeStabilize_Heli : public ModeStabilize {

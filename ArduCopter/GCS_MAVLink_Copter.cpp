@@ -1433,6 +1433,9 @@ uint8_t GCS_MAVLINK_Copter::send_available_mode(uint8_t index) const
 #if MODE_LOITER_ENABLED
         &copter.mode_loiter,
 #endif
+#if MODE_SEEK_ENABLED
+        &copter.mode_seek,
+#endif
 #if MODE_GUIDED_ENABLED
         &copter.mode_guided,
 #endif

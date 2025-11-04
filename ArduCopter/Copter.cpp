@@ -973,7 +973,9 @@ Copter::Copter(void)
     land_accel_ef_filter(LAND_DETECTOR_ACCEL_LPF_CUTOFF),
     rc_throttle_control_in_filter(1.0f),
     param_loader(var_info)
+
 {
+
 }
 
 Copter copter;

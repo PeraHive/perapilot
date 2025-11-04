@@ -187,6 +187,7 @@ public:
     friend class ParametersG2;
     friend class AP_Avoidance_Copter;
 
+
 #if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
     friend class AP_AdvancedFailsafe_Copter;
 #endif
@@ -227,6 +228,7 @@ public:
     friend class ModeZigZag;
     friend class ModeAutorotate;
     friend class ModeTurtle;
+    friend class ModeSeek;
 
     friend class _AutoTakeoff;
 
@@ -1031,6 +1033,9 @@ private:
     ModeAltHold mode_althold;
 #if MODE_AUTO_ENABLED
     ModeAuto mode_auto;
+#endif
+#if MODE_SEEK_ENABLED
+    ModeSeek mode_seek;
 #endif
 #if AUTOTUNE_ENABLED
     ModeAutoTune mode_autotune;

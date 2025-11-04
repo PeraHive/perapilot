@@ -477,6 +477,7 @@ const AP_Param::Info Copter::var_info[] = {
     GOBJECTPTR(circle_nav, "CIRCLE_",  AC_Circle),
 #endif
 
+
     // @Group: ATC_
     // @Path: ../libraries/AC_AttitudeControl/AC_AttitudeControl.cpp,../libraries/AC_AttitudeControl/AC_AttitudeControl_Multi.cpp,../libraries/AC_AttitudeControl/AC_AttitudeControl_Heli.cpp
     GOBJECTVARPTR(attitude_control, "ATC_", &copter.attitude_control_var_info),
@@ -1120,6 +1121,10 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
 
     // ID 62 is reserved for the SHOW_... parameters from the Skybrush fork at
     // https://github.com/skybrush-io/ardupilot
+    #if MODE_SEEK_ENABLED
+    // AP_SUBGROUPEXTENSION(mode_seek, "_SEEK", 60, Copter, ModeSeek::var_info),
+    AP_SUBGROUPINFO(mode_seek, "SEEK", 60, Copter, ModeSeek),
+    #endif
 
     AP_GROUPEND
 };

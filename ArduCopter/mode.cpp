@@ -54,6 +54,12 @@ Mode *Copter::mode_from_mode_num(const Mode::Number mode)
             return &mode_circle;
 #endif
 
+#if MODE_SEEK_ENABLED
+        case Mode::Number::SEEK:
+            return &mode_seek;
+#endif
+
+
 #if MODE_LOITER_ENABLED
         case Mode::Number::LOITER:
             return &mode_loiter;
